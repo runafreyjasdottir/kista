@@ -63,7 +63,7 @@ except ImportError:
     )
     from cryptography.fernet import Fernet, InvalidToken
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 VAULT_DIR = Path(os.environ.get("KISTA_DIR", str(Path.home() / ".hermes" / "credentials")))
 VAULT_KEY = VAULT_DIR / ".vault_key"
@@ -128,6 +128,11 @@ ENTRY_TYPE_SCHEMAS = {
         "address": (False, ""),
         "phone": (False, ""),
         "national_id": (False, ""),
+    },
+    "url": {
+        "url": (True, None),
+        "title": (False, ""),
+        "description": (False, ""),
     },
 }
 
@@ -463,7 +468,12 @@ def cmd_add(args):
         entry["chain"] = getattr(args, "chain", None) or ""
 
     elif entry_type == "note":
-        entry["content"] = getattr(args, "content", None) or ""
+        content = getattr(args, "content", None) or ""
+        # Auto-prepend timestamp to note content
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        if content and not content.startswith("[20"):
+            content = f"[{timestamp}] {content}"
+        entry["content"] = content
         entry["category"] = getattr(args, "category", None) or ""
 
     elif entry_type == "totp":
@@ -488,6 +498,11 @@ def cmd_add(args):
         entry["address"] = getattr(args, "address", None) or ""
         entry["phone"] = getattr(args, "phone", None) or getattr(args, "phone_arg", None) or ""
         entry["national_id"] = getattr(args, "national_id", None) or ""
+
+    elif entry_type == "url":
+        entry["url"] = getattr(args, "url", None) or ""
+        entry["title"] = getattr(args, "title", None) or ""
+        entry["description"] = getattr(args, "description", None) or ""
 
     # Validate required fields
     schema = ENTRY_TYPE_SCHEMAS[entry_type]
@@ -566,6 +581,8 @@ def cmd_list(args):
             identity = entry.get("product") or "(no product)"
         elif entry_type == "identity":
             identity = entry.get("full_name") or "(no name)"
+        elif entry_type == "url":
+            identity = entry.get("title") or entry.get("url") or "(no URL)"
         else:
             identity = "(unknown)"
         updated = entry.get("updated", "?")[:10]
@@ -664,7 +681,12 @@ def cmd_update(args):
 
     elif entry_type == "note":
         if getattr(args, "content", None):
-            entry["content"] = args.content
+            content = args.content
+            # Auto-prepend timestamp to note content on update too
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            if content and not content.startswith("[20"):
+                content = f"[{timestamp}] {content}"
+            entry["content"] = content
             updated = True
         if getattr(args, "category", None):
             entry["category"] = args.category
@@ -725,6 +747,17 @@ def cmd_update(args):
             updated = True
         if getattr(args, "national_id", None):
             entry["national_id"] = args.national_id
+            updated = True
+
+    elif entry_type == "url":
+        if getattr(args, "url", None):
+            entry["url"] = args.url
+            updated = True
+        if getattr(args, "title", None):
+            entry["title"] = args.title
+            updated = True
+        if getattr(args, "description", None):
+            entry["description"] = args.description
             updated = True
 
     if updated:
@@ -792,6 +825,10 @@ def cmd_check(args):
             print(f"  Expires: {entry.get('expires', '(not set)')}")
         elif entry_type == "identity":
             print(f"  Name: {entry.get('full_name', '(not set)')}")
+        elif entry_type == "url":
+            print(f"  URL: {entry.get('url', '(not set)')}")
+            print(f"  Title: {entry.get('title', '(not set)')}")
+            print(f"  Description: {entry.get('description', '(not set)')}")
 
         print(f"  Tags: {', '.join(entry.get('tags', [])) or '(none)'}")
         print(f"  Created: {entry.get('created', '?')[:10]}")
@@ -827,25 +864,87 @@ def cmd_status(args):
 
 
 def cmd_search(args):
-    """Fuzzy search across services and all fields (including type-specific)."""
+    """Fuzzy search across services and all fields, with optional date filtering."""
     key = _get_key()
     vault = _load_vault(key)
     entries = vault.get("entries", {})
 
-    query = args.query.lower()
+    query = (args.query or "").lower()
+    date_filter = getattr(args, "date", None)
+    from_date = getattr(args, "from_date", None)
+    to_date = getattr(args, "to_date", None)
+    after = getattr(args, "after", None)
+    before = getattr(args, "before", None)
+
+    def _parse_date(d):
+        """Parse date string (date-only or datetime) to comparable format."""
+        if not d:
+            return None
+        d = d.strip()
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(d, fmt)
+            except ValueError:
+                continue
+        return None
+
+    def _matches_date(created_str):
+        """Check if an entry's created timestamp matches date filters."""
+        if not created_str:
+            return not any([date_filter, from_date, to_date, after, before])
+        # Parse ISO timestamp
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+            try:
+                created = datetime.strptime(created_str[:26].split("+")[0].split("Z")[0], fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return not any([date_filter, from_date, to_date, after, before])
+
+        if date_filter:
+            day = _parse_date(date_filter)
+            if day:
+                next_day = day.replace(hour=23, minute=59, second=59)
+                if not (day <= created <= next_day):
+                    return False
+        if from_date:
+            fd = _parse_date(from_date)
+            if fd and created < fd:
+                return False
+        if to_date:
+            td = _parse_date(to_date)
+            if td:
+                td = td.replace(hour=23, minute=59, second=59)
+                if created > td:
+                    return False
+        if after:
+            ad = _parse_date(after)
+            if ad and created <= ad:
+                return False
+        if before:
+            bd = _parse_date(before)
+            if bd and created >= bd:
+                return False
+        return True
 
     results = []
     for service, entry in entries.items():
-        # Check service name
+        # Date filter first (most selective)
+        if not _matches_date(entry.get("created")):
+            continue
+        # If no text query, date-only search
+        if not query:
+            results.append(service)
+            continue
+        # Text search
         if query in service:
             results.append(service)
             continue
-        # Check all string fields
         searchable = " ".join(str(v) for v in entry.values() if isinstance(v, str))
         if query in searchable.lower():
             results.append(service)
             continue
-        # Check tags
         tags = entry.get("tags", [])
         if any(query in t for t in tags):
             results.append(service)
@@ -863,6 +962,8 @@ def cmd_search(args):
                 identity = entry.get("service_url") or "(no URL)"
             elif entry_type == "note":
                 identity = entry.get("category") or "(no category)"
+            elif entry_type == "url":
+                identity = entry.get("title") or entry.get("url") or "(no URL)"
             else:
                 identity = entry.get("full_name") or entry.get("domain") or entry.get("host") or "(no identity)"
             tags = ", ".join(entry.get("tags", []))
@@ -1234,8 +1335,13 @@ def main():
     p_chk.add_argument("service", help="Service name")
 
     # search
-    p_search = sub.add_parser("search", help="Fuzzy search across services and fields")
-    p_search.add_argument("query", help="Search term")
+    p_search = sub.add_parser("search", help="Fuzzy search across services and fields, with optional date filtering")
+    p_search.add_argument("query", nargs="?", default=None, help="Search term (optional with date flags)")
+    p_search.add_argument("--date", "-d", dest="date", help="Find entries created on this date (YYYY-MM-DD)")
+    p_search.add_argument("--from", dest="from_date", help="Entries created on or after this date/datetime")
+    p_search.add_argument("--to", dest="to_date", help="Entries created on or before this date/datetime")
+    p_search.add_argument("--after", help="Entries created after this datetime")
+    p_search.add_argument("--before", help="Entries created before this datetime")
 
     # generate-password
     p_gen = sub.add_parser("generate-password", help="Generate a random password")
