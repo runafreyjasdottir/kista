@@ -157,7 +157,7 @@ class TestInit:
         cs.cmd_init(_make_args(command="init"))
         key = cs._get_key()
         vault = cs._load_vault(key)
-        assert vault["version"] == 1
+        assert vault["version"] == 2
         assert vault["entries"] == {}
         assert "created" in vault
 
@@ -677,13 +677,22 @@ class TestEdgeCases:
             cs._get_key()
 
     def test_corrupted_vault_data(self, isolated_vault):
-        """BUG-ERR-01 FIX: Corrupt vault gives actionable error, not raw traceback."""
+        """BUG-ERR-01 FIX: Corrupt vault gives actionable error, not raw traceback.
+
+        With v2.0 self-healing, _load_vault will first try to auto-repair from backup.
+        When no valid backup exists, it should still exit with actionable message.
+        """
         cs = isolated_vault["module"]
         _init_vault(cs)
+        # Remove backups so auto-repair has no valid backup to use
+        backup_dir = isolated_vault["vault_dir"] / "backups"
+        if backup_dir.exists():
+            import shutil
+            shutil.rmtree(backup_dir)
         # Corrupt the vault file
         isolated_vault["vault_file"].write_bytes(b"CORRUPTED_DATA")
         key = cs._get_key()
-        # _load_vault now catches InvalidToken and exits with SystemExit + actionable message
+        # _load_vault auto-repair fails (no backups), so it exits with SystemExit
         with pytest.raises(SystemExit):
             cs._load_vault(key)
 
@@ -849,7 +858,7 @@ class TestEncryption:
         cs._save_vault(vault, key)
         loaded = cs._load_vault(key)
         assert loaded["entries"] == {}
-        assert loaded["version"] == 1
+        assert loaded["version"] == 2
 
 
 # =============================================================
@@ -1219,12 +1228,21 @@ class TestKeyValidation:
 
 
 class TestCorruptVaultRecovery:
-    """BUG-ERR-01: Corrupt vault gives actionable messages, not raw traceback."""
+    """BUG-ERR-01: Corrupt vault gives actionable messages, not raw traceback.
+
+    With v2.0 self-healing, _load_vault first attempts auto-repair from backup.
+    When no valid backup exists, it should still exit with an actionable message.
+    """
 
     def test_corrupt_vault_actionable_error(self, isolated_vault, capsys):
-        """Corrupt vault data should give an actionable error message."""
+        """Corrupt vault data: auto-repair attempts then fails if no backup."""
         cs = isolated_vault["module"]
         _init_vault(cs)
+        # Remove backups so auto-repair has no valid backup to use
+        backup_dir = isolated_vault["vault_dir"] / "backups"
+        if backup_dir.exists():
+            import shutil
+            shutil.rmtree(backup_dir)
         isolated_vault["vault_file"].write_bytes(b"CORRUPTED_DATA")
         key = cs._get_key()
         with pytest.raises(SystemExit):
@@ -1233,9 +1251,14 @@ class TestCorruptVaultRecovery:
         assert "Cannot decrypt vault" in captured.err or "decrypt" in captured.err.lower()
 
     def test_corrupt_json_actionable_error(self, isolated_vault, capsys):
-        """Valid Fernet token but invalid JSON should give actionable message."""
+        """Valid Fernet token but invalid JSON: auto-repair attempts then fails if no backup."""
         cs = isolated_vault["module"]
         _init_vault(cs)
+        # Remove backups so auto-repair has no valid backup to use
+        backup_dir = isolated_vault["vault_dir"] / "backups"
+        if backup_dir.exists():
+            import shutil
+            shutil.rmtree(backup_dir)
         key = cs._get_key()
         # Encrypt invalid JSON
         encrypted = cs._encrypt(b"this is not JSON{}", key)
@@ -1244,6 +1267,22 @@ class TestCorruptVaultRecovery:
             cs._load_vault(key)
         captured = capsys.readouterr()
         assert "invalid JSON" in captured.err.lower() or "corrupt" in captured.err.lower()
+
+    def test_corrupt_vault_auto_heal_from_backup(self, isolated_vault, capsys):
+        """v2.0 self-healing: corrupt vault auto-recovers if a valid backup exists."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "heal-test", password="heal-pw")
+        # After _save_vault, there should be a backup
+        # Corrupt the vault file
+        isolated_vault["vault_file"].write_bytes(b"CORRUPTED_DATA")
+        key = cs._get_key()
+        # _load_vault should auto-repair from backup and succeed
+        vault = cs._load_vault(key)
+        assert "heal-test" in vault["entries"]
+        assert vault["entries"]["heal-test"]["password"] == "heal-pw"
+        captured = capsys.readouterr()
+        assert "repair" in captured.err.lower() or "backup" in captured.err.lower()
 
 
 class TestKeyRegenerationProtection:
