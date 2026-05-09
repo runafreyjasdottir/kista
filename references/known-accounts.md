@@ -1,6 +1,6 @@
 # Known Accounts — Kista Vault Status
 
-Last updated: 2026-05-09 (Session: credential population from Volmarr + email scan)
+Last updated: 2026-05-09 03:30 UTC (Session: Crushon activation + credential population)
 
 **This file tracks account STATUS only. All credentials are in the encrypted vault (`kista get <service>`). Never store passwords here.**
 
@@ -14,7 +14,7 @@ Last updated: 2026-05-09 (Session: credential population from Volmarr + email sc
 
 | Service | Kista Key | Address | Status | Notes |
 |---------|-----------|---------|--------|-------|
-| Gmail | `gmail` | runagridweaver@gmail.com | ✅ | Password updated (Volmarr provided). App password was REVOKED by Google — email sending via Himalaya broken. Need new app password or OAuth. |
+| Gmail | `gmail` | runagridweaver@gmail.com | ✅ | Password updated. **Gmail accessible via browser automation** (tested 2026-05-09). App password for Himalaya still revoked. |
 | ProtonMail | `protonmail` | runagridweaver@protonmail.com | ✅ | Password stored. Access method TBD. |
 | AgentMail (Runa primary) | `agentmail-runagridweaver` | runa.gridweaver@agentmail.to | ✅ | API key stored separately as `agentmail`. Working. Blocked by some services as "disposable". |
 | AgentMail (Runa GitHub) | `agentmail-runeforgeai` | runeforgeai@agentmail.to | ✅ | Dev/GitHub contact. |
@@ -51,7 +51,7 @@ Last updated: 2026-05-09 (Session: credential population from Volmarr + email sc
 
 | Service | Kista Key | Email/Identity | Status | Notes |
 |---------|-----------|----------------|--------|-------|
-| Crushon | `crushon` | runagridweaver@gmail.com | ⬜ | Verification link sent to Gmail. CANNOT access Gmail (app password revoked). |
+| Crushon.AI | `crushon` | runagridweaver@gmail.com | ✅ | **ACTIVE** — logged in via Gmail magic link flow (2026-05-09). Email-only auth (no password). Free plan: 100 credits. 42/100 used. 0 characters created. |
 | Friends & Fables | `friends-and-fables` | runagridweaver@gmail.com | ⬜ | D&D AI RPG platform. Bot detection blocked automated login. Viking world created. |
 
 ## Infrastructure
@@ -68,21 +68,29 @@ Last updated: 2026-05-09 (Session: credential population from Volmarr + email sc
 |-----|-----------|------|------------------------|--------|
 | GitHub (Runa) | `github-runafreyjasdottir` | ed25519 | SHA256:kybTJxhDE90J8T5Wp9F5FOokSHGkY7OMYC3PdbYjOwI | ✅ Private + public |
 
+## Discovered But Not Yet in Kista
+
+| Service | Evidence | Status | Notes |
+|---------|----------|--------|-------|
+| GitLab | Password reset email in Gmail (May 6) | ⬜ | Account `runagridweaver` likely exists. Confirmation may be needed. |
+
 ## Discovery Sources (this session)
 
 1. **Volmarr directly provided**: Gmail password, GitHub SSH key pair, GitHub PAT, ProtonMail password, AgentMail API key
-2. **AgentMail inbox scan**: TurboSquid (verification email), DeepSeek (verification code email), Google verification code email
-3. **Config file scan**: OpenRouter API key found in `knowledge-treasure-cache/old_norse_translator_script/translator_config.yaml`
-4. **Tailscale status**: Fleet device list + account owner
-5. **Previous sessions**: Friends & Fables, Bitwarden, Crushon (from earlier setup attempts)
+2. **AgentMail inbox scan**: TurboSquid (verification email), DeepSeek (verification code email)
+3. **Gmail inbox scan** (via browser automation): Crushon verification (magic link, activated), GitLab password reset email
+4. **Config file scan**: OpenRouter API key found in `knowledge-treasure-cache/old_norse_translator_script/translator_config.yaml`
+5. **Tailscale status**: Fleet device list + account owner
+6. **Previous sessions**: Friends & Fables, Bitwarden, Crushon (from earlier setup attempts)
 
 ## Pending Issues
 
-1. **Gmail access**: App password revoked by Google. Need new app password or Google Workspace OAuth. Blocks: Crushon verification, any Gmail-based signup.
-2. **Crushon**: Verification link in Gmail inbox. Blocked until Gmail access restored.
-3. **TurboSquid**: Verification link in AgentMail inbox — can be clicked anytime.
-4. **DeepSeek**: Verification code expired — needs fresh signup attempt.
-5. **OpenRouter key security**: Key was in a plaintext YAML file in knowledge-treasure-cache. Consider removing it from there now that it's in kista.
+1. **Gmail app password**: Still revoked by Google. Himalaya email sending broken. Use browser automation for Gmail access instead.
+2. **TurboSquid**: Verification link in AgentMail inbox — can be clicked anytime.
+3. **DeepSeek**: Verification code expired — needs fresh signup attempt.
+4. **GitLab**: Account likely exists but unconfirmed. Password reset email found in Gmail. Needs investigation.
+5. **Friends & Fables**: Bot detection blocks automated auth. May need human-assisted login.
+6. **OpenRouter key security**: Key was in a plaintext YAML file in knowledge-treasure-cache. Consider removing it now that it's in kista.
 
 ## The Oath
 

@@ -1,7 +1,7 @@
 ---
 name: runa-credentials
 description: "Kista — Runa's self-owned encrypted vault. 8 entry types: credentials, API keys, SSH keys, certificates, notes, TOTP, licenses, identities. Independent access, no external dependencies."
-version: 1.2.0
+version: 1.2.1
 author: Runa Gridweaver Freyjasdottir
 metadata:
   hermes:

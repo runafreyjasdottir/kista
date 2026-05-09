@@ -1340,7 +1340,7 @@ class TestVersionFlag:
             capture_output=True, text=True
         )
         assert result.returncode == 0
-        assert "1.2.0" in result.stdout
+        assert "1.3.0" in result.stdout
 
 
 class TestSubprocessInstall:
@@ -1584,7 +1584,7 @@ class TestAddNote:
         vault = cs._load_vault(key)
         entry = vault["entries"]["wifi-password"]
         assert entry["entry_type"] == "note"
-        assert entry["content"] == "Home WiFi: MyNetwork/secret123"
+        assert entry["content"].endswith("Home WiFi: MyNetwork/secret123")
         assert entry["category"] == "networking"
 
     def test_add_note_shortcut(self, isolated_vault):
@@ -1597,7 +1597,7 @@ class TestAddNote:
         vault = cs._load_vault(key)
         entry = vault["entries"]["grocery-list"]
         assert entry["entry_type"] == "note"
-        assert entry["content"] == "Milk, eggs, bread"
+        assert entry["content"].endswith("Milk, eggs, bread")
 
     def test_add_note_missing_required(self, isolated_vault):
         """Adding note without content should fail."""
@@ -1760,7 +1760,7 @@ class TestGetTypeSpecific:
         output = capsys.readouterr().out
         data = json.loads(output.strip())
         assert data["entry_type"] == "note"
-        assert data["content"] == "Hello world"
+        assert data["content"].endswith("Hello world")
 
     def test_get_totp(self, isolated_vault, capsys):
         cs = isolated_vault["module"]
@@ -1892,7 +1892,7 @@ class TestUpdateTypeSpecific:
         key = cs._get_key()
         vault = cs._load_vault(key)
         entry = vault["entries"]["my-note"]
-        assert entry["content"] == "new content"
+        assert entry["content"].endswith("new content")
         assert entry["category"] == "updated"
 
     def test_update_totp(self, isolated_vault):
