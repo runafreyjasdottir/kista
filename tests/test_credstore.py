@@ -7,6 +7,8 @@ Platform: Linux ARM64 (Pi 5)
 Tests cover: init, add, get, list, update, remove, check, status, export, import,
 edge cases (empty vault, corrupted data, missing key, special chars in passwords,
 duplicate entries, concurrent access).
+
+Plus: entry type system tests (apikey, sshkey, certificate, note, totp, license, identity)
 """
 
 import argparse
@@ -80,6 +82,39 @@ def _make_args(**kwargs):
         "overwrite": False,
         "query": None,
         "length": 20,
+        "entry_type": None,
+        # Type-specific fields
+        "key_arg": None,
+        "key_file": None,
+        "cert_file": None,
+        "expires": None,
+        "expires_field": None,
+        "service_url": None,
+        "rate_limit": None,
+        "scopes": None,
+        "public_key": None,
+        "passphrase": None,
+        "key_type": None,
+        "host": None,
+        "domain": None,
+        "issuer": None,
+        "chain": None,
+        "content": None,
+        "category": None,
+        "secret": None,
+        "digits": None,
+        "period": None,
+        "algorithm": None,
+        "product": None,
+        "seats": None,
+        "order_id": None,
+        "full_name": None,
+        "birth_date": None,
+        "id_number": None,
+        "id_type": None,
+        "address": None,
+        "phone_arg": None,
+        "national_id": None,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -298,7 +333,7 @@ class TestList:
         _init_vault(cs)
         cs.cmd_list(_make_args(command="list"))
         output = capsys.readouterr().out
-        assert "No credentials stored yet" in output
+        assert "No entries stored yet" in output or "No credentials stored yet" in output
 
     def test_list_multiple(self, isolated_vault, capsys):
         cs = isolated_vault["module"]
@@ -618,7 +653,7 @@ class TestEdgeCases:
         # List empty
         cs.cmd_list(_make_args(command="list"))
         output = capsys.readouterr().out
-        assert "No credentials" in output
+        assert "No" in output
 
         # Get nonexistent
         with pytest.raises(SystemExit):
@@ -1305,7 +1340,7 @@ class TestVersionFlag:
             capture_output=True, text=True
         )
         assert result.returncode == 0
-        assert "1.1.0" in result.stdout
+        assert "1.2.0" in result.stdout
 
 
 class TestSubprocessInstall:
@@ -1366,3 +1401,628 @@ class TestImportValidation:
         dest.write_bytes(enc)
         with pytest.raises(SystemExit):
             cs.cmd_import(_make_args(command="import", file=str(dest)))
+
+
+# =============================================================
+# SECTION 17: Entry Type System Tests
+# =============================================================
+
+
+class TestEntryTypeBackwardCompat:
+    """Backward compatibility: old entries without entry_type default to 'credential'."""
+
+    def test_old_entries_get_credential_type_on_load(self, isolated_vault):
+        """Entries created before entry_type was added should default to 'credential'."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "oldentry", password="pw123", username="olduser")
+        key = cs._get_key()
+
+        # Manually remove entry_type if it was set (simulating an old vault)
+        vault = cs._load_vault(key)
+        del vault["entries"]["oldentry"]["entry_type"]
+        cs._save_vault(vault, key)
+
+        # Load again — should auto-add entry_type
+        vault = cs._load_vault(key)
+        assert vault["entries"]["oldentry"]["entry_type"] == "credential"
+
+    def test_credential_type_is_default(self, isolated_vault):
+        """Adding an entry without --type should default to 'credential'."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "defaultsvc", password="pw")
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        assert vault["entries"]["defaultsvc"]["entry_type"] == "credential"
+
+    def test_explicit_credential_type(self, isolated_vault):
+        """Explicit --type credential should work."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "creds", password="pw", entry_type="credential")
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        assert vault["entries"]["creds"]["entry_type"] == "credential"
+
+
+class TestAddApikey:
+    """Test adding API key entries."""
+
+    def test_add_apikey(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "aws-api", entry_type="apikey", key_arg="AKIA1234567890ABCDEF",
+                   service_url="https://api.aws.amazon.com", rate_limit="100req/min",
+                   scopes="read,write", tags="aws,cloud")
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["aws-api"]
+        assert entry["entry_type"] == "apikey"
+        assert entry["key"] == "AKIA1234567890ABCDEF"
+        assert entry["service_url"] == "https://api.aws.amazon.com"
+        assert entry["rate_limit"] == "100req/min"
+        assert entry["scopes"] == "read,write"
+        assert "aws" in entry["tags"]
+
+    def test_add_apikey_shortcut(self, isolated_vault):
+        """Test add-apikey convenience command alias."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        args = _make_args(command="add-apikey", service="stripe-api",
+                          key_arg="sk_live_xyz", service_url="https://api.stripe.com")
+        cs.cmd_add(args)
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["stripe-api"]
+        assert entry["entry_type"] == "apikey"
+        assert entry["key"] == "sk_live_xyz"
+
+    def test_add_apikey_missing_required(self, isolated_vault):
+        """Adding apikey without required field 'key' should fail."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        with pytest.raises(SystemExit):
+            _add_entry(cs, "nokey-api", entry_type="apikey")
+
+
+class TestAddSshkey:
+    """Test adding SSH key entries."""
+
+    def test_add_sshkey_from_file(self, isolated_vault, tmp_path):
+        """SSH private keys should be read from --key-file for security."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        key_file = tmp_path / "id_rsa"
+        key_file.write_text("-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQ\n-----END RSA PRIVATE KEY-----\n")
+        _add_entry(cs, "github-ssh", entry_type="sshkey",
+                   key_file=str(key_file), key_type="rsa",
+                   host="github.com", passphrase="mypassphrase")
+        k = cs._get_key()
+        vault = cs._load_vault(k)
+        entry = vault["entries"]["github-ssh"]
+        assert entry["entry_type"] == "sshkey"
+        assert "BEGIN RSA PRIVATE KEY" in entry["private_key"]
+        assert entry["key_type"] == "rsa"
+        assert entry["host"] == "github.com"
+        assert entry["passphrase"] == "mypassphrase"
+
+    def test_add_sshkey_shortcut(self, isolated_vault, tmp_path):
+        """Test add-sshkey convenience command alias."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        key_file = tmp_path / "id_ed25519"
+        key_file.write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----\n")
+        args = _make_args(command="add-sshkey", service="server-ssh",
+                          key_file=str(key_file), key_type="ed25519",
+                          host="example.com")
+        cs.cmd_add(args)
+        k = cs._get_key()
+        vault = cs._load_vault(k)
+        entry = vault["entries"]["server-ssh"]
+        assert entry["entry_type"] == "sshkey"
+        assert "OPENSSH PRIVATE KEY" in entry["private_key"]
+
+    def test_add_sshkey_missing_key_file(self, isolated_vault):
+        """SSH key without --key-file should store empty private_key (required field missing)."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        with pytest.raises(SystemExit):
+            _add_entry(cs, "bad-ssh", entry_type="sshkey")
+
+
+class TestAddCertificate:
+    """Test adding certificate entries."""
+
+    def test_add_certificate_from_files(self, isolated_vault, tmp_path):
+        """Certificates and keys read from files for security."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        cert_file = tmp_path / "server.crt"
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\nMIIDfzCCAmegAwIB\n-----END CERTIFICATE-----\n")
+        key_file = tmp_path / "server.key"
+        key_file.write_text("-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----\n")
+
+        _add_entry(cs, "example-cert", entry_type="certificate",
+                   cert_file=str(cert_file), key_file=str(key_file),
+                   domain="example.com", issuer="Let's Encrypt",
+                   expires_field="2027-01-01")
+        k = cs._get_key()
+        vault = cs._load_vault(k)
+        entry = vault["entries"]["example-cert"]
+        assert entry["entry_type"] == "certificate"
+        assert "BEGIN CERTIFICATE" in entry["cert"]
+        assert "BEGIN PRIVATE KEY" in entry["key"]
+        assert entry["domain"] == "example.com"
+        assert entry["issuer"] == "Let's Encrypt"
+
+    def test_add_certificate_shortcut(self, isolated_vault, tmp_path):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        cert_file = tmp_path / "app.crt"
+        cert_file.write_text("CERT_DATA_HERE")
+
+        args = _make_args(command="add-certificate", service="app-cert",
+                          cert_file=str(cert_file), domain="app.example.com")
+        cs.cmd_add(args)
+        k = cs._get_key()
+        vault = cs._load_vault(k)
+        entry = vault["entries"]["app-cert"]
+        assert entry["entry_type"] == "certificate"
+        assert entry["cert"] == "CERT_DATA_HERE"
+
+
+class TestAddNote:
+    """Test adding note entries."""
+
+    def test_add_note(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "wifi-password", entry_type="note",
+                   content="Home WiFi: MyNetwork/secret123", category="networking")
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["wifi-password"]
+        assert entry["entry_type"] == "note"
+        assert entry["content"] == "Home WiFi: MyNetwork/secret123"
+        assert entry["category"] == "networking"
+
+    def test_add_note_shortcut(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        args = _make_args(command="add-note", service="grocery-list",
+                          content="Milk, eggs, bread", category="personal")
+        cs.cmd_add(args)
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["grocery-list"]
+        assert entry["entry_type"] == "note"
+        assert entry["content"] == "Milk, eggs, bread"
+
+    def test_add_note_missing_required(self, isolated_vault):
+        """Adding note without content should fail."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        with pytest.raises(SystemExit):
+            _add_entry(cs, "empty-note", entry_type="note")
+
+
+class TestAddTotp:
+    """Test adding TOTP entries."""
+
+    def test_add_totp(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "google-totp", entry_type="totp",
+                   secret="JBSWY3DPEHPK3PXP", digits=6, period=30,
+                   algorithm="SHA1", issuer="Google")
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["google-totp"]
+        assert entry["entry_type"] == "totp"
+        assert entry["secret"] == "JBSWY3DPEHPK3PXP"
+        assert entry["digits"] == 6
+        assert entry["period"] == 30
+        assert entry["algorithm"] == "SHA1"
+        assert entry["issuer"] == "Google"
+
+    def test_add_totp_defaults(self, isolated_vault):
+        """TOTP should set defaults for digits, period, algorithm."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "simple-totp", entry_type="totp", secret="ABCDEF123456")
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["simple-totp"]
+        assert entry["digits"] == 6
+        assert entry["period"] == 30
+        assert entry["algorithm"] == "SHA1"
+
+    def test_add_totp_shortcut(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        args = _make_args(command="add-totp", service="authy-totp",
+                          secret="SECRET123", issuer="Authy")
+        cs.cmd_add(args)
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        assert vault["entries"]["authy-totp"]["entry_type"] == "totp"
+
+
+class TestAddLicense:
+    """Test adding license entries."""
+
+    def test_add_license(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "jetbrains", entry_type="license",
+                   key_arg="XYZ-ABC-123-DEF", product="IntelliJ IDEA",
+                   seats="5", expires_field="2027-12-31", order_id="ORD-12345")
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["jetbrains"]
+        assert entry["entry_type"] == "license"
+        assert entry["key"] == "XYZ-ABC-123-DEF"
+        assert entry["product"] == "IntelliJ IDEA"
+        assert entry["seats"] == "5"
+        assert entry["expires"] == "2027-12-31"
+
+    def test_add_license_shortcut(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        args = _make_args(command="add-license", service="windows",
+                          key_arg="WIN-KEY-123", product="Windows 11 Pro")
+        cs.cmd_add(args)
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        assert vault["entries"]["windows"]["entry_type"] == "license"
+        assert vault["entries"]["windows"]["key"] == "WIN-KEY-123"
+
+    def test_add_license_missing_required(self, isolated_vault):
+        """Adding license without key should fail."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        with pytest.raises(SystemExit):
+            _add_entry(cs, "nokey-license", entry_type="license")
+
+
+class TestAddIdentity:
+    """Test adding identity entries."""
+
+    def test_add_identity(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "runa-id", entry_type="identity",
+                   full_name="Runa Björksdóttir", birth_date="1995-03-15",
+                   id_number="ID-12345", id_type="passport",
+                   address="Reykjavík, Iceland", phone_arg="+354-555-1234",
+                   national_id="3103951234")
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["runa-id"]
+        assert entry["entry_type"] == "identity"
+        assert entry["full_name"] == "Runa Björksdóttir"
+        assert entry["birth_date"] == "1995-03-15"
+        assert entry["id_type"] == "passport"
+        assert entry["phone"] == "+354-555-1234"
+        assert entry["national_id"] == "3103951234"
+
+    def test_add_identity_shortcut(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        args = _make_args(command="add-identity", service="my-passport",
+                          full_name="Jane Doe", id_type="passport")
+        cs.cmd_add(args)
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["my-passport"]
+        assert entry["entry_type"] == "identity"
+        assert entry["full_name"] == "Jane Doe"
+
+
+class TestGetTypeSpecific:
+    """Test that get shows type-appropriate fields for each entry type."""
+
+    def test_get_apikey(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "aws-api", entry_type="apikey",
+                   key_arg="AKIA123", service_url="https://aws.amazon.com")
+        capsys.readouterr()
+        cs.cmd_get(_make_args(command="get", service="aws-api"))
+        output = capsys.readouterr().out
+        data = json.loads(output.strip())
+        assert data["entry_type"] == "apikey"
+        assert data["key"] == "AKIA123"
+        assert data["service_url"] == "https://aws.amazon.com"
+
+    def test_get_sshkey(self, isolated_vault, tmp_path, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        key_file = tmp_path / "id_rsa"
+        key_file.write_text("RSA_PRIV_KEY_CONTENT")
+        _add_entry(cs, "git-ssh", entry_type="sshkey",
+                   key_file=str(key_file), key_type="ed25519", host="git.example.com")
+        capsys.readouterr()
+        cs.cmd_get(_make_args(command="get", service="git-ssh"))
+        output = capsys.readouterr().out
+        data = json.loads(output.strip())
+        assert data["entry_type"] == "sshkey"
+        assert data["private_key"] == "RSA_PRIV_KEY_CONTENT"
+        assert data["key_type"] == "ed25519"
+
+    def test_get_note(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "my-note", entry_type="note", content="Hello world", category="test")
+        capsys.readouterr()
+        cs.cmd_get(_make_args(command="get", service="my-note"))
+        output = capsys.readouterr().out
+        data = json.loads(output.strip())
+        assert data["entry_type"] == "note"
+        assert data["content"] == "Hello world"
+
+    def test_get_totp(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "totp-svc", entry_type="totp", secret="MYSECRET",
+                   digits=8, period=60, algorithm="SHA256")
+        capsys.readouterr()
+        cs.cmd_get(_make_args(command="get", service="totp-svc"))
+        output = capsys.readouterr().out
+        data = json.loads(output.strip())
+        assert data["entry_type"] == "totp"
+        assert data["secret"] == "MYSECRET"
+        assert data["digits"] == 8
+        assert data["period"] == 60
+        assert data["algorithm"] == "SHA256"
+
+
+class TestListShowsType:
+    """Test that list command shows entry type column."""
+
+    def test_list_shows_type_column(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "github", password="pw", entry_type="credential")
+        _add_entry(cs, "aws-key", entry_type="apikey", key_arg="AKIA123")
+        cs.cmd_list(_make_args(command="list"))
+        output = capsys.readouterr().out
+        assert "credential" in output
+        assert "apikey" in output
+
+    def test_list_shows_type_for_mixed_entries(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "svc1", password="pw")
+        _add_entry(cs, "svc2", entry_type="note", content="my note")
+        _add_entry(cs, "svc3", entry_type="totp", secret="ABC")
+        cs.cmd_list(_make_args(command="list"))
+        output = capsys.readouterr().out
+        assert "credential" in output
+        assert "note" in output
+        assert "totp" in output
+
+
+class TestCheckTypeSpecific:
+    """Test that check shows type-appropriate information."""
+
+    def test_check_apikey(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "aws-api", entry_type="apikey", key_arg="AKIA123",
+                   service_url="https://aws.amazon.com")
+        cs.cmd_check(_make_args(command="check", service="aws-api"))
+        output = capsys.readouterr().out
+        assert "apikey" in output
+        assert "Has key: Yes" in output
+
+    def test_check_note(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "my-note", entry_type="note", content="stuff", category="personal")
+        cs.cmd_check(_make_args(command="check", service="my-note"))
+        output = capsys.readouterr().out
+        assert "note" in output
+
+    def test_check_totp(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "totp-svc", entry_type="totp", secret="ABC", issuer="TestCo")
+        cs.cmd_check(_make_args(command="check", service="totp-svc"))
+        output = capsys.readouterr().out
+        assert "totp" in output
+        assert "Digits: 6" in output  # default
+        assert "Period: 30s" in output  # default
+
+
+class TestSearchTypeSpecific:
+    """Test that search searches type-specific fields."""
+
+    def test_search_apikey_url(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "aws-api", entry_type="apikey", key_arg="AKIA123",
+                   service_url="https://api.aws.amazon.com")
+        capsys.readouterr()
+        cs.cmd_search(_make_args(command="search", query="aws.amazon.com"))
+        output = capsys.readouterr().out
+        assert "aws-api" in output
+
+    def test_search_note_content(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "todo-notes", entry_type="note", content="Buy groceries and fix the router")
+        capsys.readouterr()
+        cs.cmd_search(_make_args(command="search", query="groceries"))
+        output = capsys.readouterr().out
+        assert "todo-notes" in output
+
+    def test_search_identity_name(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "runa-id", entry_type="identity", full_name="Runa Björksdóttir")
+        capsys.readouterr()
+        cs.cmd_search(_make_args(command="search", query="björk"))
+        output = capsys.readouterr().out
+        assert "runa-id" in output
+
+
+class TestUpdateTypeSpecific:
+    """Test that update supports type-specific fields."""
+
+    def test_update_apikey(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "aws-api", entry_type="apikey", key_arg="old_key")
+        cs.cmd_update(_make_args(command="update", service="aws-api", key_arg="new_key",
+                                 service_url="https://new.aws.com"))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["aws-api"]
+        assert entry["key"] == "new_key"
+        assert entry["service_url"] == "https://new.aws.com"
+
+    def test_update_note(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "my-note", entry_type="note", content="old content")
+        cs.cmd_update(_make_args(command="update", service="my-note", content="new content",
+                                 category="updated"))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["my-note"]
+        assert entry["content"] == "new content"
+        assert entry["category"] == "updated"
+
+    def test_update_totp(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "totp-svc", entry_type="totp", secret="OLDSECRET")
+        cs.cmd_update(_make_args(command="update", service="totp-svc",
+                                 secret="NEWSECRET", digits=8, period=60))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["totp-svc"]
+        assert entry["secret"] == "NEWSECRET"
+        assert entry["digits"] == 8
+        assert entry["period"] == 60
+
+    def test_update_sshkey_key_file(self, isolated_vault, tmp_path):
+        """Updating SSH key via --key-file should replace the private key."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        old_key_file = tmp_path / "old_key"
+        old_key_file.write_text("OLD_PRIVATE_KEY")
+        _add_entry(cs, "git-ssh", entry_type="sshkey", key_file=str(old_key_file),
+                   key_type="rsa", host="github.com")
+
+        new_key_file = tmp_path / "new_key"
+        new_key_file.write_text("NEW_PRIVATE_KEY")
+
+        cs.cmd_update(_make_args(command="update", service="git-ssh",
+                                 key_file=str(new_key_file), key_type="ed25519"))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["git-ssh"]
+        assert entry["private_key"] == "NEW_PRIVATE_KEY"
+        assert entry["key_type"] == "ed25519"
+
+    def test_update_license(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "my-license", entry_type="license", key_arg="OLD-KEY")
+        cs.cmd_update(_make_args(command="update", service="my-license",
+                                 key_arg="NEW-KEY", product="UpdatedProduct"))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["my-license"]
+        assert entry["key"] == "NEW-KEY"
+        assert entry["product"] == "UpdatedProduct"
+
+    def test_update_identity(self, isolated_vault):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "my-id", entry_type="identity", full_name="Old Name")
+        cs.cmd_update(_make_args(command="update", service="my-id",
+                                 full_name="New Name", address="123 Main St"))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        entry = vault["entries"]["my-id"]
+        assert entry["full_name"] == "New Name"
+        assert entry["address"] == "123 Main St"
+
+
+class TestKeyFileCertFile:
+    """Test --key-file and --cert-file reading for sensitive data."""
+
+    def test_key_file_reads_content(self, isolated_vault, tmp_path):
+        """--key-file should read file content into private_key field."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        key_file = tmp_path / "ssh_privkey"
+        key_file.write_text("-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----")
+        _add_entry(cs, "ssh-test", entry_type="sshkey", key_file=str(key_file))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        assert "BEGIN RSA PRIVATE KEY" in vault["entries"]["ssh-test"]["private_key"]
+
+    def test_cert_file_reads_content(self, isolated_vault, tmp_path):
+        """--cert-file should read file content into cert field."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        cert_file = tmp_path / "server.pem"
+        cert_file.write_text("-----BEGIN CERTIFICATE-----\ncertdata\n-----END CERTIFICATE-----")
+        _add_entry(cs, "cert-test", entry_type="certificate", cert_file=str(cert_file))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        assert "BEGIN CERTIFICATE" in vault["entries"]["cert-test"]["cert"]
+
+    def test_key_file_nonexistent_exits(self, isolated_vault):
+        """--key-file with nonexistent path should exit with error."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        with pytest.raises(SystemExit):
+            _add_entry(cs, "bad-ssh", entry_type="sshkey",
+                       key_file="/nonexistent/path/key")
+
+    def test_cert_file_nonexistent_exits(self, isolated_vault):
+        """--cert-file with nonexistent path should exit with error."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        with pytest.raises(SystemExit):
+            _add_entry(cs, "bad-cert", entry_type="certificate",
+                       cert_file="/nonexistent/path/cert")
+
+    def test_certificate_key_file_update(self, isolated_vault, tmp_path):
+        """Updating certificate with --key-file should replace private key."""
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        cert_file = tmp_path / "srv.crt"
+        cert_file.write_text("CERT_CONTENT")
+        _add_entry(cs, "srv-cert", entry_type="certificate", cert_file=str(cert_file))
+
+        new_key_file = tmp_path / "srv.key"
+        new_key_file.write_text("NEW_KEY_CONTENT")
+
+        cs.cmd_update(_make_args(command="update", service="srv-cert",
+                                 key_file=str(new_key_file)))
+        key = cs._get_key()
+        vault = cs._load_vault(key)
+        assert vault["entries"]["srv-cert"]["key"] == "NEW_KEY_CONTENT"
+
+
+class TestStatusTypeCount:
+    """Test status command shows type breakdown."""
+
+    def test_status_type_counts(self, isolated_vault, capsys):
+        cs = isolated_vault["module"]
+        _init_vault(cs)
+        _add_entry(cs, "cred1", password="pw")
+        _add_entry(cs, "apikey1", entry_type="apikey", key_arg="key1")
+        _add_entry(cs, "note1", entry_type="note", content="hello")
+        cs.cmd_status(_make_args(command="status"))
+        output = capsys.readouterr().out
+        assert "credential" in output
+        assert "apikey" in output
+        assert "note" in output
