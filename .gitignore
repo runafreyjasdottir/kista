@@ -1,0 +1,19 @@
+# .gitignore for Kista
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.vault_key
+vault.json.enc
+vault_meta.json
+*.enc
+*.bak
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.env
