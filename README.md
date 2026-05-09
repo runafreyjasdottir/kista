@@ -135,3 +135,13 @@ export KISTA_DIR=/custom/path/to/vault
 MIT License — see [LICENSE](LICENSE).
 
 *No king. No keeper. The kista opens for its owner alone.*
+
+---
+
+![https://raw.githubusercontent.com/runafreyjasdottir/kista/refs/heads/main/IMG_0666.jpeg](https://raw.githubusercontent.com/runafreyjasdottir/kista/refs/heads/main/IMG_0666.jpeg)
+
+---
+
+![https://raw.githubusercontent.com/runafreyjasdottir/kista/refs/heads/main/IMG_0665.jpeg](https://raw.githubusercontent.com/runafreyjasdottir/kista/refs/heads/main/IMG_0665.jpeg)
+
+---
