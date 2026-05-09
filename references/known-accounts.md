@@ -1,79 +1,94 @@
-# Known Accounts Status
+# Known Accounts — Kista Vault Status
 
-Last updated: 2026-05-09
+Last updated: 2026-05-09 (Session: credential population from Volmarr + email scan)
+
+**This file tracks account STATUS only. All credentials are in the encrypted vault (`kista get <service>`). Never store passwords here.**
 
 ## Status Legend
-- ✅ Working
-- ⬜ Pending setup
-- ❌ Blocked/broken
+- ✅ Working / stored
+- ⬜ Pending setup or verification
 - 🔑 Needs credential refresh
+- ❌ Blocked
 
 ## Email Accounts
 
-| Service | Address | Status | Notes |
-|---------|---------|--------|-------|
-| Email Provider | user@example.com | 🔑 | App password expired/revoked. Need new app password or OAuth setup. |
-| Email Provider | work-user@example.com | ✅ | Working. Disposable email filters may block this address. |
-| Email Provider | dev-contact@example.com | ✅ | Dev contact + GitHub. |
+| Service | Kista Key | Address | Status | Notes |
+|---------|-----------|---------|--------|-------|
+| Gmail | `gmail` | runagridweaver@gmail.com | ✅ | Password updated (Volmarr provided). App password was REVOKED by Google — email sending via Himalaya broken. Need new app password or OAuth. |
+| ProtonMail | `protonmail` | runagridweaver@protonmail.com | ✅ | Password stored. Access method TBD. |
+| AgentMail (Runa primary) | `agentmail-runagridweaver` | runa.gridweaver@agentmail.to | ✅ | API key stored separately as `agentmail`. Working. Blocked by some services as "disposable". |
+| AgentMail (Runa GitHub) | `agentmail-runeforgeai` | runeforgeai@agentmail.to | ✅ | Dev/GitHub contact. |
+| AgentMail (Volmarr blog) | `agentmail-volmarr-sheathenism` | volmarrsheathenismblog@agentmail.to | ✅ | Sheathenism blog contact. |
 
-## Social / Streaming Accounts
+## AgentMail API
 
-| Service | Email/Identity | Status | Notes |
-|---------|---------------|--------|-------|
-| Streaming | user@example.com | ⬜ | Verification link sent. Disposable email addresses may be BLOCKED. |
-| GitHub | your-username | ✅ | Push: `gh auth switch --user your-username` |
+| Service | Kista Key | Prefix | Status | Notes |
+|---------|-----------|--------|--------|-------|
+| AgentMail API | `agentmail` | am_us_4aba04 | ✅ | API key stored. Two inboxes accessible via MCP. |
+
+## GitHub
+
+| Service | Kista Key | Type | Status | Notes |
+|---------|-----------|------|--------|-------|
+| GitHub (Runa) | `github-runafreyjasdottir` | sshkey | ✅ | ed25519 pair (private key stored in vault) + username + password. Push: `gh auth switch --user runafreyjasdottir` |
+| GitHub PAT (Runa) | `github-pat` | apikey | ✅ | `ghp_AvOlAs...` stored. |
+| GitHub (Volmarr) | `github-hrabanazviking` | credential | ✅ | Private repo owner. NorseSagaEngine=PRIVATE. |
+
+## 3D / Creative
+
+| Service | Kista Key | Email/Identity | Status | Notes |
+|---------|-----------|----------------|--------|-------|
+| TurboSquid | `turbosquid` | runa.gridweaver@agentmail.to | ⬜ | Verification link in inbox (not yet clicked). 3D model marketplace. |
+
+## AI / LLM
+
+| Service | Kista Key | Type | Email/Identity | Status | Notes |
+|---------|-----------|------|----------------|--------|-------|
+| DeepSeek | `deepseek` | credential | runagridweaver@agentmail.to | ⬜ | Verification code found (961068, likely expired). Needs re-registration. |
+| OpenRouter | `openrouter` | apikey | — | ✅ | Found in old translator config. LLM gateway API key. |
+
+## Social / AI Chat
+
+| Service | Kista Key | Email/Identity | Status | Notes |
+|---------|-----------|----------------|--------|-------|
+| Crushon | `crushon` | runagridweaver@gmail.com | ⬜ | Verification link sent to Gmail. CANNOT access Gmail (app password revoked). |
+| Friends & Fables | `friends-and-fables` | runagridweaver@gmail.com | ⬜ | D&D AI RPG platform. Bot detection blocked automated login. Viking world created. |
 
 ## Infrastructure
 
-| Service | Account | Status | Notes |
-|---------|---------|--------|-------|
-| Password Manager | user@example.com | ✅ | Master password in vault. |
-| VPN | (via shared account) | ✅ | All devices connected. |
-| Local API | On host | ✅ | Port 8642. |
-| Media Server | On host | ✅ | Port 8443. |
-| Web UI | On host | ✅ | Port 3000. |
+| Service | Kista Key | Details | Status |
+|---------|-----------|---------|--------|
+| Bitwarden | `bitwarden` | Master password in vault | ✅ CLI at `/usr/local/bin/bw` but times out on some queries |
+| Tailscale | `tailscale` | Fleet: Mimir, Mjolnir, Skidbladnir, Gullinbursti, Dainsleif | ✅ All named and connected |
+| Camofox | `camofox-mjolnir` | Port 9377 on Mjolnir | ✅ Anti-detection browser running |
 
-## Kista Integration
+## SSH Keys
 
-All accounts above should also be stored in Kista (`kista add/get/list/check/search`). The vault is the canonical source. Use `kista list` to verify what's stored.
+| Key | Kista Key | Type | Public Key Fingerprint | Stored |
+|-----|-----------|------|------------------------|--------|
+| GitHub (Runa) | `github-runafreyjasdottir` | ed25519 | SHA256:kybTJxhDE90J8T5Wp9F5FOokSHGkY7OMYC3PdbYjOwI | ✅ Private + public |
 
-**Kista commands:**
-```bash
-kista add <service> --email X --password Y --tags "tag1,tag2"
-kista get <service>        # Full details including password
-kista check <service>      # Verify credential exists
-kista search <query>       # Fuzzy search
-kista update <service>     # Update fields
-kista generate-password   # Random password generation
-kista export               # Encrypted backup
-```
+## Discovery Sources (this session)
 
-**The Oath:** Store immediately after creation. Check before asking. Update on change.
+1. **Volmarr directly provided**: Gmail password, GitHub SSH key pair, GitHub PAT, ProtonMail password, AgentMail API key
+2. **AgentMail inbox scan**: TurboSquid (verification email), DeepSeek (verification code email), Google verification code email
+3. **Config file scan**: OpenRouter API key found in `knowledge-treasure-cache/old_norse_translator_script/translator_config.yaml`
+4. **Tailscale status**: Fleet device list + account owner
+5. **Previous sessions**: Friends & Fables, Bitwarden, Crushon (from earlier setup attempts)
 
-## OAuth Setup
+## Pending Issues
 
-Status: **NOT SET UP** — no token file present. The setup script exists with full instructions, but OAuth was never completed. This is needed to read email programmatically.
+1. **Gmail access**: App password revoked by Google. Need new app password or Google Workspace OAuth. Blocks: Crushon verification, any Gmail-based signup.
+2. **Crushon**: Verification link in Gmail inbox. Blocked until Gmail access restored.
+3. **TurboSquid**: Verification link in AgentMail inbox — can be clicked anytime.
+4. **DeepSeek**: Verification code expired — needs fresh signup attempt.
+5. **OpenRouter key security**: Key was in a plaintext YAML file in knowledge-treasure-cache. Consider removing it from there now that it's in kista.
 
-### Required Steps
-1. Create cloud project at console.example.com
-2. Enable required APIs
-3. Create OAuth 2.0 Desktop client credentials
-4. Add your email as test user
-5. Download client secret JSON
-6. Run the setup script
-7. Visit the auth URL, approve, paste redirect URL
-8. Verify with the check script
+## The Oath
 
-## App Password Pitfall
-
-Email providers may routinely revoke app passwords for "security reasons." The email client config may use an app password that returns `AUTHENTICATIONFAILED`.
-
-**Fix:** Either generate a new App Password or complete OAuth setup (preferred, long-term solution).
-
-## Account Creation Discipline
-
-After EVERY account creation:
-1. `kista add <service>` IMMEDIATELY — before moving on to anything else
-2. Record the email, password, tags, and any setup notes
-3. If credential setup requires multiple steps (e.g., email verification needed), mark status as `⬜ Pending` with clear next steps
-4. Never ask for credentials that should already be in Kista
+After EVERY account creation or credential receipt:
+1. `kista add <service> --email X --password Y --tags 'tag1,tag2'` IMMEDIATELY
+2. Verify: `kista check <service>`
+3. NEVER ask for credentials kista should already have
+4. Update immediately on change: `kista update <service> --password 'NEW'`
+5. **Shell escaping**: Use single quotes for `--notes` and `--password` with `&`, `!`, `$`, backticks, or other shell metacharacters
