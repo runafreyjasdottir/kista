@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=61.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "kista"
@@ -16,6 +16,9 @@ dependencies = [
 
 [project.scripts]
 kista = "scripts.credstore:main"
+
+[tool.setuptools.packages.find]
+include = ["scripts*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
