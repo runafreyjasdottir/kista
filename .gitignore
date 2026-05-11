@@ -16,4 +16,5 @@ Thumbs.db
 *.swp
 *.swo
 *~
-.envbackups/
+.env
+backups/
