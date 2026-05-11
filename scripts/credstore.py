@@ -2027,9 +2027,7 @@ def _add_type_args(parser, entry_type) -> None:
 
     elif entry_type == "markdown":
         parser.add_argument("--title", dest="md_title", required=True, help="Document title (required)")
-        parser.add_argument("--content", dest="md_content", required=True, help="Full markdown content (required)")
-        parser.add_argument("--category", dest="md_category", help="Document category")
-        parser.add_argument("--tags", dest="md_tags", help="Tags (JSON array or comma-separated)")
+        parser.add_argument("--md-source", help="Source content (markdown)")
         parser.add_argument("--source-url", dest="source_url", help="Source URL")
 
 
