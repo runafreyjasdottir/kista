@@ -1,6 +1,6 @@
 # Known Accounts — Kista Vault Status
 
-Last updated: 2026-05-09 03:30 UTC (Session: Crushon activation + credential population)
+Last updated: 2026-05-09 04:15 UTC (Session: Credential population + Crushon + Kista v1.3.0)
 
 **This file tracks account STATUS only. All credentials are in the encrypted vault (`kista get <service>`). Never store passwords here.**
 
@@ -72,7 +72,7 @@ Last updated: 2026-05-09 03:30 UTC (Session: Crushon activation + credential pop
 
 | Service | Evidence | Status | Notes |
 |---------|----------|--------|-------|
-| GitLab | Password reset email in Gmail (May 6) | ⬜ | Account `runagridweaver` likely exists. Confirmation may be needed. |
+| GitLab | Password reset email in Gmail (May 6) | ✅ | Account `runagridweaver` exists. Stored as `gitlab` in kista. Cloudflare blocks automated sign-in. API works for user lookup. |
 
 ## Discovery Sources (this session)
 
