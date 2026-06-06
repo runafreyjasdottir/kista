@@ -1379,7 +1379,7 @@ class TestVersionFlag:
             capture_output=True, text=True
         )
         assert result.returncode == 0
-        assert "1.3.0" in result.stdout
+        assert "2.0.0" in result.stdout
 
 
 class TestSubprocessInstall:
