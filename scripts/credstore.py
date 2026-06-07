@@ -620,6 +620,9 @@ def cmd_repair(args) -> None:
         sys.exit(1)
 
 
+import threading
+_vault_lock = threading.Lock()
+
 def cmd_add(args) -> None:
     """Add a new entry (of any type)."""
     key = _get_key()
